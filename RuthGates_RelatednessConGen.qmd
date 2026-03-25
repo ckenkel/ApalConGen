@@ -1,0 +1,609 @@
+---
+title: "Ruth Gates Relatedness & Diversity Analyses"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load all of the needed libraries.
+
+```{r}
+
+#install.packages("corrplot")
+
+# Graphical tools :
+library(ggplot2)
+library(cowplot)
+library(corrplot)
+#library(nationalparkcolors)
+
+# Data Wrangling :
+library(dplyr)
+library(tidyr)
+library(forcats)
+library(car)
+library(naniar)
+library(reshape2)
+library(spaa)
+
+```
+
+## Quick plot of diversity (pi) stat, keeping apples2apples and including invariant sites (comparing HiCo to HiCo)
+
+```{r}
+
+pi<-read.table("~/Dropbox/CarlsLab/ResearchProjects/NOAA_RuthGates/GenomeAnalysis/Diversity/pixy_EBonly_pi.txt",stringsAsFactors=TRUE,header=TRUE) 
+
+head(pi)
+
+plot(avg_pi~pop,pi)
+
+anova(lm(avg_pi~pop,pi))
+
+pi %>%
+  filter(avg_pi>0.1) #nonrandomly distributed
+
+pi %>%
+  filter(avg_pi==0)
+
+str(pi)
+
+pi %>%
+  group_by(chromosome) %>%
+  summarise(max_pos=max(window_pos_2), mean_pi=mean(avg_pi,na.rm=TRUE)) #how long are chromosomes
+
+pi %>%
+  filter(avg_pi>0.1) %>%
+  group_by(chromosome) %>%
+  summarise(max_pos=max(window_pos_2)) #yeah, not really associated with beginning/end of chromosome, could be centromere? but may just go with it
+  
+pi %>%
+  filter(is.na(avg_pi)) %>%
+  nrow()
+
+hist(pi$avg_pi, breaks=50)
+hist(log(pi$avg_pi,base=10))
+
+# old color scheme violin plot
+pi %>%
+  filter(!is.na(avg_pi)) %>%
+  mutate(log_pi=log(avg_pi,base=10)) %>%
+ggplot(aes(x=pop, y=log_pi, fill=pop)) + 
+  geom_violin(alpha=0.5) +
+  scale_fill_manual(values=c("purple", "darkblue", "brown"))+
+  geom_boxplot(width=0.1, fill="white",outlier.shape = NA)+
+  xlab(NULL) + 
+  ylab("Log10(π)") +
+  scale_x_discrete(labels= c("E-B Batch Cross", "Lower Keys Founders", "Upper Keys Founders")) +
+  theme_bw()+
+  theme(legend.position="none")
+
+#color blind friendly histogram
+pi %>%
+  filter(!is.na(avg_pi)) %>%
+ggplot(aes(x = avg_pi, fill = pop)) +
+geom_histogram(position = "identity", alpha = 0.65, bins = 150) +
+  scale_fill_manual(values=c("#009E73", "#CC79A7", "#E69F00"))+
+  xlab("nucleotide diversity (π)") + 
+  xlim(c(0,0.005))+ #restrict to view more of main distribution
+  theme_bw()+
+  geom_vline(xintercept = 0.00285,col="#009E73")+
+  geom_vline(xintercept = 0.00299,col="#CC79A7")+
+  geom_vline(xintercept = 0.00293,col="#E69F00")
+
+pi %>% #inset for upper
+  filter(!is.na(avg_pi)) %>%
+ggplot(aes(x = avg_pi, fill = pop)) +
+geom_histogram(position = "identity", alpha = 0.65, bins = 300) +
+  scale_fill_manual(values=c("#009E73", "#CC79A7", "#E69F00"))+
+  xlab("nucleotide diversity (π)") + 
+  xlim(c(0.005,0.15))+
+#  ylim(c(0,1000))+
+  theme_bw()
+  
+
+pi2<-pi %>%
+  filter(!is.na(avg_pi)) %>%
+  mutate(log_pi=log(avg_pi,base=10)) 
+
+m1<-aov(avg_pi~pop,pi)
+
+summary(m1) #significant
+
+## Raw pi values model
+#               Df Sum Sq   Mean Sq F value  Pr(>F)   
+#pop             2 0.0003 1.520e-04   5.096 0.00612 **
+#Residuals   90564 2.7011 2.983e-05    
+
+
+m2<-aov(log(avg_pi+1,base=10)~pop,pi)
+
+summary(m2) #also significant, slightly more so
+
+TukeyHSD(m1) #LK sig diff from EB but not others
+
+pi %>% #what is average
+  group_by(pop) %>%
+  summarise(max_pi=max(avg_pi,na.rm=TRUE), mean_pi=mean(avg_pi,na.rm=TRUE),min_pi=min(avg_pi,na.rm=TRUE))
+
+```
+
+## Moving on, Read in Relatedness tables
+
+```{r}
+#read in shallow sample set only
+Lo<-read.table("~/Dropbox/CarlsLab/ResearchProjects/NOAA_RuthGates/GenomeAnalysis/Relatedness/AllCHR_GL_allLoci_realign_IGP099_IMP_DR2099_dummyID_binary_fileset_KINGrelate.kin0",stringsAsFactors=TRUE,header=FALSE) 
+
+head(Lo)
+str(Lo)  #11175 rows, 150 samples
+tail(Lo)
+
+names(Lo)<-c("FID1","ID1","FID2","ID2","N_SNP","HETHET","IBS0","kinship") #see https://www.cog-genomics.org/plink/2.0/formats#kin0
+
+(factorial(150))/((factorial(2))*(factorial(150-2))) #should be 11175 rows - all good
+
+#read in high and low coverage set combined
+LoHi<-read.table("~/Dropbox/CarlsLab/ResearchProjects/NOAA_RuthGates/GenomeAnalysis/Relatedness/AllCHR_ExptIMPfilt_HapParent_Merge_Filt_dummyID_binary_fileset_KINGrelate.kin0",stringsAsFactors=TRUE,header=FALSE) 
+ 
+head(LoHi)
+str(LoHi)  #176 samples #should be 15400
+
+names(LoHi)<-c("FID1","ID1","FID2","ID2","N_SNP","HETHET","IBS0","kinship")
+
+#intersect by values in ID1 and ID2 to compare Kinship estimates when parents included/excluded
+by <- join_by(ID1,ID2)
+
+All <-full_join(LoHi,Lo,by) #LoHi=X ; Lo=Y
+str(All) #good, same N rows as larger table
+
+#check that all appears to match
+All %>%
+  filter(!is.na(FID1.y)) %>%
+  str() #11175 rows - good
+
+
+```
+
+## NOW lets try some correlations to check difference btween methods
+
+```{r}
+
+All %>%
+  filter(!is.na(FID1.y)) %>% 
+  ggplot(aes(x=kinship.x, y=kinship.y)) + #LoHi=X ; Lo=Y
+  geom_point()+
+  geom_line()+
+  theme_bw() + 
+  xlab("Kinship Estimate Including High Coverage Samples") + 
+  ylab("Kinship Estimate Excluding High Coverage Samples") 
+
+All %>%
+  filter(!is.na(FID1.y)) %>% 
+  mutate(KinshipDiff=kinship.x-kinship.y) %>%
+  with(hist(KinshipDiff, main = "Kinship Concordance",xlab="Difference in Kinship Estimates"))
+
+#estimates are super close - nice!!!
+
+```
+
+## Lets go with full dataset and import vector of true sample names to determine relatedness
+
+```{r}
+
+ids=read.csv("~/Dropbox/CarlsLab/ResearchProjects/NOAA_RuthGates/GenomeAnalysis/RelatednessKey.csv",stringsAsFactors=TRUE) # read in sample name key
+nrow(ids)
+head(ids)
+
+ids<-ids[,c(1,3,4)]
+
+names(ids)<-c("ID1","cross_ID1" , "sampleID_ID1")
+
+rel1<-full_join(ids,LoHi, by="ID1")
+
+rel1 %>%
+  filter(is.na(cross_ID1)) #good, empty
+
+names(ids)<-c("ID2","cross_ID2" , "sampleID_ID2")
+
+rel_final<-full_join(ids,rel1, by="ID2")
+
+head(rel_final)
+summary(rel_final)
+
+check1<-rel_final %>%
+  filter(is.na(ID2)) %>%#missing some dudes in batch crosses...these may already be contained in first column pairwise? need to check
+  pull(sampleID_ID1) %>%
+  droplevels()
+
+check1
+
+rel_final %>%
+  filter(sampleID_ID2 %in% check1)
+  
+check2<-rel_final %>%
+  filter(is.na(ID1)) %>%#missing in dudes in some other batch crosses...these may already be contained in 2nd column pairwise?
+  pull(sampleID_ID2) %>%
+  droplevels()
+
+check2
+
+#dudes listed in duplicate in each check list: AP11, X-AP-15, X-AP-24, AP29_Hi, AP33, AP64, AP66_Lo, AP355
+#are those names in IDs that were tossed in sample processing steps; okay to be empty! 
+#others are included in one but not other column as expected: AP2, AP327_Hi
+#so should be okay
+
+rel_final %>%
+  filter(sampleID_ID2=="AP2") %>%# yes okay, 175 rows so all pairwise there
+  nrow()
+
+rel_final %>%
+  filter(sampleID_ID1=="AP2") #just not in 2nd column
+
+rel_final %>%
+  filter(sampleID_ID2=="AP327_Hi") %>%# missing in this row
+  nrow()
+
+rel_final %>%
+  filter(sampleID_ID1=="AP327_Hi") %>%
+  nrow() #all 175 present here, all good
+  
+Allnam<-rel_final %>%
+    filter(!is.na(ID2)) %>%
+    filter(!is.na(ID1)) %>%
+    droplevels()
+
+summary(Allnam) #good to go
+
+```
+
+## Alright, moving on to plots and eval of relatedness
+
+## First lets ID clones and parents using Full dataset
+
+```{r}
+
+Allnam %>%
+  ggplot(aes(x=IBS0, y=kinship)) + #See OG KING paper
+  geom_point()+
+  theme_bw() 
+
+#Note that many kinship estimates are zero, indicating unrelated...lets plot just ones with positive Kinship
+
+Allnam %>%
+  filter(kinship > 0) %>%
+  ggplot(aes(x=IBS0, y=kinship)) + #See OG KING paper
+  geom_point()+
+  theme_bw() 
+
+#WHICH samples fall above threshold for clones (is it duplicate sams?)
+
+Allnam %>%
+  filter(kinship >= 0.354) 
+
+# YES - all duplicates return as clones, but so do several other unique individuals
+# Most are within batch crosses, but some are between
+
+clones<- Allnam %>%
+          filter(kinship >= 0.35)
+
+#write.csv(clones,file="KING_cloneID.csv",quote=FALSE,row.names=FALSE)
+
+# missing AP79 Lo/Hi - will pull and see
+
+Allnam %>%
+  filter(sampleID_ID2=="AP79_Lo" & sampleID_ID1=="AP79_Hi") #falling out at 0.351, will modify above exprt to be just below 0.354 to capture it
+
+## Now lets look for known parents
+Allnam %>%
+          filter(sampleID_ID2=="Apal-005" | sampleID_ID1=="Apal-005") %>%
+          filter(kinship >= 0.177) # no first degree relationships (as expected)
+
+HG1714offspring<-Allnam %>%
+          filter(sampleID_ID2=="Apal-016" | sampleID_ID1=="Apal-016") %>%
+          filter(kinship >= 0.177) # some first degree relationships - unexpected - origin is Molasses reef, neighbor of Sand Island??
+
+#write.csv(HG1714offspring,file="HG1714offspring.csv",quote=FALSE,row.names=FALSE)
+
+Allnam %>%
+          filter(sampleID_ID2=="Apal-047" | sampleID_ID1=="Apal-047") %>%
+          filter(kinship >= 0.177) # no first degree relationships (as expected)
+
+Allnam %>%
+          filter(sampleID_ID2=="Apal-090" | sampleID_ID1=="Apal-090") %>%
+          filter(kinship >= 0.177) # no first degree relationships (as expected)
+
+HG0827offspring<-Allnam %>%
+                filter(sampleID_ID2=="Apal-044" | sampleID_ID1=="Apal-044") %>%
+                filter(kinship >= 0.177) # parent of all Elbow babies (as expected!!!)
+
+#write.csv(HG0827offspring,file="HG0827offspring.csv",quote=FALSE,row.names=FALSE)
+
+HG0822offspring<-Allnam %>%
+                filter(sampleID_ID2=="Apal-074" | sampleID_ID1=="Apal-074") %>%
+                filter(kinship >= 0.177) # prolific parent of all Elbow babies (as expected!!!)...also possible sibling of SK4 & WDR2?
+
+#write.csv(HG0822offspring,file="HG0822offspring.csv",quote=FALSE,row.names=FALSE)
+
+#NOTE AP29 high dropped from HiCo library
+
+
+Allnam %>%
+          filter(sampleID_ID2=="ML-SK2" | sampleID_ID1=="ML-SK2") %>%
+          filter(kinship >= 0.177) # no first degree relationships (as expected)
+
+Allnam %>%
+          filter(sampleID_ID2=="ML-WDR3" | sampleID_ID1=="ML-WDR3") %>%
+          filter(kinship >= 0.177) # no first degree relationships (as expected)
+
+Allnam %>%
+          filter(sampleID_ID2=="ML-WDR1" | sampleID_ID1=="ML-WDR1") %>%
+          filter(kinship >= 0.177) # no first degree relationships (as expected)
+
+HG0543offspring<-Allnam %>%
+          filter(sampleID_ID2=="ML-LK10" | sampleID_ID1=="ML-LK10") %>%
+          filter(kinship >= 0.177) # correctly identified as parent of majority of LK biparental 
+
+#write.csv(HG0543offspring,file="HG0543offspring.csv",quote=FALSE,row.names=FALSE)
+
+#what about the rest of the LK biparental??
+
+AllBiparental<-Allnam %>%
+          filter(sampleID_ID2=="ML-LK10" | sampleID_ID1=="ML-LK10") %>%
+          filter(cross_ID2=="LK3 x LK10 Biparental Cross" | cross_ID1=="LK3 x LK10 Biparental Cross") %>%
+          arrange(kinship)
+
+#write.csv(AllBiparental,file="All_LK_Biparental.csv",quote=FALSE,row.names=FALSE)
+
+#of the four others that don't make the cut, two are right on the threshold between first and second degree (kinship=0.17)
+#one is solid second degree (kin=0.145) and one is third degree (0.05)
+
+Allnam %>%
+          filter(sampleID_ID2=="ML-LK5" | sampleID_ID1=="ML-LK5") %>%
+          filter(kinship >= 0.177) # no first degree relationships (as expected)
+
+## final check, other 4 random adults included in Mote expt
+
+Allnam %>%
+          filter(sampleID_ID2=="ML-LK-9" | sampleID_ID1=="ML-LK-9") %>%
+          filter(kinship >= 0.177) #nothing
+
+Allnam %>%
+          filter(sampleID_ID2=="C-U-TR-5" | sampleID_ID1=="C-U-TR-5") %>%
+          filter(kinship >= 0.177) #nothing
+
+MLSK4_firstDeg<-Allnam %>%
+          filter(sampleID_ID2=="ML-SK-4" | sampleID_ID1=="ML-SK-4") %>%
+          filter(kinship >= 0.177) #lots, overlap with offspring of AP074
+
+#write.csv(MLSK4_firstDeg,file="MLSK4_firstDeg.csv",quote=FALSE,row.names=FALSE)
+
+Allnam %>%
+          filter(sampleID_ID2=="AP127" | sampleID_ID1=="AP127") %>%
+          filter(cross_ID2=="Wild Adults" | cross_ID1=="Wild Adults") # highest relatedness is with expected wild adults; just below 1st degree threshold for AP-074
+
+MLWDR2_firstDeg<-Allnam %>%
+          filter(sampleID_ID2=="ML-WDR-2" | sampleID_ID1=="ML-WDR-2") %>%
+          filter(kinship >= 0.177) #lots, overlap with offspring of AP074
+
+#write.csv(MLWDR2_firstDeg,file="MLWDR2_firstDeg.csv",quote=FALSE,row.names=FALSE)
+
+```
+
+## Alright, expectations set, not perfect, but pretty darn good
+
+## on to validating sibling relationships among AP074 and AP044 offspring overlaps
+
+## and looking for other siblings...for those with one parent in common expect half sib range...
+
+```{r}
+
+## Need to figure out intersection between AP074 and AP044 
+
+full_sibs<- inner_join(HG0822offspring,HG0827offspring, by="ID2")%>%
+  arrange(sampleID_ID2.x) #full sibs common to both datasets
+
+# write.csv(full_sibs,file="Exp_full_sibs_Apal074044.csv",quote=FALSE,row.names=FALSE)
+
+half_sibs0827<- left_join(HG0827offspring,HG0822offspring, by="ID2") %>%
+  filter(is.na(ID1.y)) %>% # half-sibs won't have match in one or the other
+  arrange(sampleID_ID2.x) 
+
+#write.csv(half_sibs0827,file="Exp_half_sibs_Apal044.csv",quote=FALSE,row.names=FALSE)
+
+half_sibs0822<- left_join(HG0822offspring,HG0827offspring, by="ID2") %>%
+  filter(is.na(ID1.y)) %>% # half-sibs won't have match in one or the other
+  arrange(sampleID_ID2.x) 
+
+#write.csv(half_sibs0822,file="Exp_half_sibs_Apal074.csv",quote=FALSE,row.names=FALSE)
+
+
+#first lets remove founders and intentional HiCo replicates and just look at sexually produced offspring
+kids<-Allnam %>%
+      filter(cross_ID2!="Wild Adults") %>%
+      filter(cross_ID1!="Wild Adults") %>%
+      filter(sampleID_ID2!="AP54_Hi") %>%
+      filter(sampleID_ID1!="AP54_Hi")%>%
+      filter(sampleID_ID2!="AP55_Hi") %>%
+      filter(sampleID_ID1!="AP55_Hi")%>%
+      filter(sampleID_ID2!="AP56_Hi") %>%
+      filter(sampleID_ID1!="AP56_Hi")%>%
+      filter(sampleID_ID2!="AP63_Hi") %>%
+      filter(sampleID_ID1!="AP63_Hi")%>%
+      filter(sampleID_ID2!="AP327_Hi") %>%
+      filter(sampleID_ID1!="AP327_Hi")%>%
+      filter(sampleID_ID2!="AP75_Hi") %>%
+      filter(sampleID_ID1!="AP75_Hi")%>%
+      filter(sampleID_ID2!="AP76_Hi") %>%
+      filter(sampleID_ID1!="AP76_Hi")%>%
+      filter(sampleID_ID2!="AP79_Hi") %>%
+      filter(sampleID_ID1!="AP79_Hi")%>%
+      filter(sampleID_ID2!="AP86_Hi") %>%
+      filter(sampleID_ID1!="AP86_Hi")%>%
+      filter(sampleID_ID2!="AP89_Hi") %>%
+      filter(sampleID_ID1!="AP89_Hi")%>%
+      filter(sampleID_ID2!="AP91_Hi") %>%
+      filter(sampleID_ID1!="AP91_Hi")%>%
+      filter(sampleID_ID2!="AP30_Hi") %>%
+      filter(sampleID_ID1!="AP30_Hi")%>%
+      filter(sampleID_ID2!="AP14_Hi") %>%
+      filter(sampleID_ID1!="AP14_Hi")%>%
+      filter(sampleID_ID2!="AP8_Hi") %>%
+      filter(sampleID_ID1!="AP8_Hi")
+
+str(kids) 
+summary(kids)
+
+kids %>%
+  ggplot(aes(x=IBS0, y=kinship)) + #See OG KING paper
+  geom_point()+
+  theme_bw() 
+
+#Note that many kinship estimates are zero, indicating unrelated...lets plot just ones with positive Kinship
+
+kids %>%
+  filter(kinship > 0) %>%
+  ggplot(aes(x=IBS0, y=kinship)) + #See OG KING paper
+  geom_point()+
+  theme_bw() #see peak of those clones
+
+# what about distribution of kinship scores within batch cross type??
+
+kids %>%
+  filter(cross_ID2 == cross_ID1) %>%
+  filter(cross_ID2 !="E Batch Cross") %>%
+    ggplot( aes(x=kinship, fill=cross_ID2)) +
+    geom_histogram( color="#e9ecef", alpha=0.5, position = 'identity') +
+    scale_fill_manual(values=c("#009E73", "#D55E00", "#CC79A7")) +
+    geom_vline(xintercept=0.354,col="black",lty=2)+
+    geom_vline(xintercept=0.177,col="black",lty=2)+
+    geom_vline(xintercept=0.0884,col="black",lty=2)+
+    geom_vline(xintercept=0.0442,col="black",lty=2)+
+    theme_bw() 
+
+# which are the super negative ones??
+EBoutlier<-kids %>%
+  filter(cross_ID2 == cross_ID1) %>%
+  filter(cross_ID2 !="E Batch Cross") %>%
+  filter(kinship < -0.1) #all with AP55...is this mislabeled dude?
+
+#write.csv(EBoutlier,file="EBcrossLowKinshipOutliers.csv",quote=FALSE,row.names=FALSE)
+
+
+# and now for distribution of expected full sib relationships...
+
+ObsFullSibs<-kids %>%
+        filter(ID2 %in% (full_sibs$ID2)) %>%
+        filter(ID1 %in% (full_sibs$ID2)) %>% 
+        arrange(kinship)
+
+#write.csv(ObsFullSibs,file="Obs_full_sibs_Apal074044.csv",quote=FALSE,row.names=FALSE)
+
+####################
+# cross ref full sib list with list of expected offspring of BOTH parents 044 and 047
+
+matchFS<-ObsFullSibs %>%
+      filter(sampleID_ID1=="X-AP-23" | sampleID_ID1=="AP108" |sampleID_ID1=="AP112" |sampleID_ID1=="AP115" |sampleID_ID1=="AP121" |sampleID_ID1=="AP124" |sampleID_ID1=="AP126" |sampleID_ID1=="AP140" |sampleID_ID1=="AP50" |sampleID_ID1=="AP54_Lo" |sampleID_ID1=="AP70" |sampleID_ID1=="AP75_Lo" |sampleID_ID1=="AP82" |sampleID_ID1=="AP97" ) %>%
+filter(sampleID_ID2=="X-AP-23" | sampleID_ID2=="AP108" |sampleID_ID2=="AP112" |sampleID_ID2=="AP115" |sampleID_ID2=="AP121" |sampleID_ID2=="AP124" |sampleID_ID2=="AP126" |sampleID_ID2=="AP140" |sampleID_ID2=="AP50" |sampleID_ID2=="AP54_Lo" |sampleID_ID2=="AP70" |sampleID_ID2=="AP75_Lo" |sampleID_ID2=="AP82" |sampleID_ID2=="AP97" )
+
+ObsFullSibs %>%
+      filter(sampleID_ID1=="X-AP-23" | sampleID_ID1=="AP108" |sampleID_ID1=="AP112" |sampleID_ID1=="AP115" |sampleID_ID1=="AP121" |sampleID_ID1=="AP124" |sampleID_ID1=="AP126" |sampleID_ID1=="AP140" |sampleID_ID1=="AP50" |sampleID_ID1=="AP54_Lo" |sampleID_ID1=="AP70" |sampleID_ID1=="AP75_Lo" |sampleID_ID1=="AP82" |sampleID_ID1=="AP97" ) %>%
+filter(sampleID_ID2=="X-AP-23" | sampleID_ID2=="AP108" |sampleID_ID2=="AP112" |sampleID_ID2=="AP115" |sampleID_ID2=="AP121" |sampleID_ID2=="AP124" |sampleID_ID2=="AP126" |sampleID_ID2=="AP140" |sampleID_ID2=="AP50" |sampleID_ID2=="AP54_Lo" |sampleID_ID2=="AP70" |sampleID_ID2=="AP75_Lo" |sampleID_ID2=="AP82" |sampleID_ID2=="AP97" ) %>%
+  group_by(sampleID_ID2) %>%
+  summarise(meanKin=mean(kinship)) #looking good if change group_by to one or other; also should do sample by sample check
+
+ObsFullSibs %>%
+      filter(sampleID_ID1=="X-AP-23" | sampleID_ID1=="AP108" |sampleID_ID1=="AP112" |sampleID_ID1=="AP115" |sampleID_ID1=="AP121" |sampleID_ID1=="AP124" |sampleID_ID1=="AP126" |sampleID_ID1=="AP140" |sampleID_ID1=="AP50" |sampleID_ID1=="AP54_Lo" |sampleID_ID1=="AP70" |sampleID_ID1=="AP75_Lo" |sampleID_ID1=="AP82" |sampleID_ID1=="AP97" ) %>%
+filter(sampleID_ID2=="X-AP-23" | sampleID_ID2=="AP108" |sampleID_ID2=="AP112" |sampleID_ID2=="AP115" |sampleID_ID2=="AP121" |sampleID_ID2=="AP124" |sampleID_ID2=="AP126" |sampleID_ID2=="AP140" |sampleID_ID2=="AP50" |sampleID_ID2=="AP54_Lo" |sampleID_ID2=="AP70" |sampleID_ID2=="AP75_Lo" |sampleID_ID2=="AP82" |sampleID_ID2=="AP97" ) %>%
+  filter(sampleID_ID1=="AP97" | sampleID_ID2=="AP97") #Expectation is 13 rows for each sample to achieve 14 pairwise comparisons and all should be high kinship - all good!
+
+summary(matchFS)
+####################
+
+#finally, plot a correlation matrix heatmap as i think this is nice visual for clumping individuals into their relatedness groups
+
+#read in plink kin matrix
+matLoHi<-read.table("~/Dropbox/CarlsLab/ResearchProjects/NOAA_RuthGates/GenomeAnalysis/Relatedness/AllCHR_ExptIMPfilt_HapParent_Merge_Filt_dummyID_binary_fileset_KINGrelate_matrix.king",header=FALSE) 
+
+head(matLoHi) #yes, matrix is fully reflected with 0.5 for selfs
+str(matLoHi)  #176 samples
+
+matLoHi_ids<-read.table("~/Dropbox/CarlsLab/ResearchProjects/NOAA_RuthGates/GenomeAnalysis/Relatedness/AllCHR_ExptIMPfilt_HapParent_Merge_Filt_dummyID_binary_fileset_KINGrelate_matrix.king.id",header=FALSE)
+
+head(matLoHi_ids)
+tail(matLoHi_ids)
+
+head(ids) #revisit sample-name key  
+
+names(matLoHi_ids)<-c("FID","ID2")
+
+head(matLoHi_ids)
+
+by <- join_by(ID2)
+test<-full_join(matLoHi_ids,ids,by)
+head(test)
+tail(test)
+
+summary(test) #as expected, missing samples qual filtered from final sample set
+
+matLoHi_ids_Full<- test %>%
+  filter(!is.na(FID))
+
+tail(matLoHi_ids_Full) #good, ends at 176 now
+
+names(matLoHi)<-matLoHi_ids_Full$sampleID_ID2
+rownames(matLoHi)<-matLoHi_ids_Full$sampleID_ID2
+
+head(matLoHi)
+names(matLoHi)
+
+summary(matLoHi)
+
+matLoHI_fin<-as.matrix(matLoHi)
+
+#also, make alternate dataset removing high co samples (=artificial clones)
+
+matLoHi_NoDups<-matLoHi[1:162,1:162] #they're all at end, keep only AP66
+
+matLoHi_NoDups_fin<-as.matrix(matLoHi_NoDups)
+
+#also, also, make dataset that is just 3 x batch cross babies
+
+test$cross_ID2
+names(matLoHi)
+
+matLoHi_BatchOnly<-matLoHi[c(1:74,77:80,82,87:150,162),c(1:74,77:80,82,87:150,162)]
+
+matLoHi_BatchOnly_fin<-as.matrix(matLoHi_BatchOnly)
+
+names(matLoHi_BatchOnly)
+
+
+##if there are deliberate clones, just plot matrix without boxes 
+corrplot(matLoHI_fin,method="square",tl.col="black",tl.srt=90,is.corr=FALSE,diag=TRUE,order="hclust",tl.cex=0.55,addrect=5)
+
+##otherwise, play around with clustering boxes to see if anything falls out in terms of higher relatedness groups
+#change the addrect value to change the number of black rectangles that get drawn 
+corrplot(matLoHi_BatchOnly_fin,method="square",tl.col="black",tl.srt=90,is.corr=FALSE,diag=TRUE,order="hclust",tl.cex=0.55,addrect=7)
+
+corrplot(matLoHi_NoDups_fin,method="square",tl.col="black",tl.srt=90,is.corr=FALSE,diag=TRUE,order="hclust",tl.cex=0.55,type="lower")
+
+##playing with color variants and legend
+summary(ALL)
+## first reset diagonal to max kinship score from clonal valudation set = 0.443
+diag(matLoHi_BatchOnly_fin)<- 0.433
+
+matLoHi_BatchOnly_fin[1:5,1:5] #good worked
+
+corrplot(matLoHi_BatchOnly_fin,method="color",addgrid.col="grey",tl.col="black",tl.srt=90,is.corr=FALSE,diag=TRUE,order="hclust",tl.cex=0.55,addrect=7,col = COL2('RdBu', 100)) #12 is good
+
+corrplot(matLoHi_BatchOnly_fin,method="color",type="lower",addgrid.col="grey",tl.col="black",tl.srt=90,is.corr=FALSE,diag=TRUE,order="hclust",tl.cex=0.55,addrect=7,col = COL2('RdBu', 100)) 
+
+corrplot(matLoHi_BatchOnly_fin,method="color",type="upper",addgrid.col="grey",tl.col="black",tl.srt=90,is.corr=FALSE,diag=TRUE,order="hclust",tl.cex=0.55,addrect=7,col=colorRampPalette(c("#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#FFFFFF","#B8D8E9", "#4F9BC7","#4F9BC7","#144D8A","#144D8A","#144D8A","#144D8A","#000000"))(15)) #17
+
+```
+

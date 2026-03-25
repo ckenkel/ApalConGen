@@ -1,0 +1,188 @@
+---
+title: "Ruth Gates Map of Sites"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load all of the needed libraries.
+
+```{r}
+
+#install.packages(c("cowplot", "googleway", "ggplot2", "ggrepel", 
+#"ggspatial", "libwgeom", "sf", "rnaturalearth", "rnaturalearthdata"))
+
+#install.packages("ggrepel")
+
+#devtools::install_github('ropensci/rnaturalearthhires')
+
+#Basic foundations; set color theme
+library("ggplot2")
+theme_set(theme_bw())
+library("sf")
+
+#Country Data and scaling aesthetics
+library("rnaturalearth")
+library("rnaturalearthdata")
+library("rnaturalearthhires")
+library("ggrepel")
+library("ggspatial")
+
+#world <- ne_countries(country="United States of America",scale = "medium", returnclass = "sf")
+#class(world)
+
+# https://docs.ropensci.org/rnaturalearth/articles/rnaturalearth.html
+
+# coastline - note smaller numbers = higher resolution! L = large (high res)
+coastline10 <- ne_download(
+  scale = 10L,
+  type = "coastline",
+  category = "physical"
+)
+#plot(coastline10, col = "blue")
+
+
+#color scheme
+#https://jrnold.github.io/ggthemes/reference/colorblind.html
+
+```
+
+## Define map boundaries and add points based on list of desired coordinates
+
+```{r}
+
+#First define list of larval source sites
+
+#Elbow: 25.1415 N 80.2623 W
+#Looe: 24.54609 N 81.40576 W
+#Horseshoe: 25.1399° N, 80.2946° W
+#Sand Island: 25.018267 -80.368417 25.500073°N 80.183415°W
+#Brewster: 25.566436° N, -80.099466° W
+#IC2R3 Nursery: 24.6617° N, -81.4554° W
+
+(crosses <- data.frame(longitude = c(-80.2623, -81.40576, -80.2946, -80.183415, -80.099466), latitude = c(25.1415, 
+    24.54609,25.1399, 25.500073,25.566436)))
+crosses
+
+(LKbi <- data.frame(longitude = c(-81.40576), latitude = c( 24.54609)))
+LKbi
+
+(EB <- data.frame(longitude = c(-80.2623,-80.099466), latitude = c( 25.1415, 25.566436)))
+EB
+
+(EHSI <- data.frame(longitude = c(-80.2946,-80.183415), latitude = c( 25.1399, 25.500073)))
+EHSI
+
+(nursery <- data.frame(longitude = c(-81.4554), latitude = c(24.6617)))
+nursery
+
+#Also Founder origins
+#Sand Key 24.45308 N 81.87559 W
+#WDR 24.44538 N 81.92742 W
+#WDR 24.44513 N 81.92718 W
+#Looe 24.54609 N 81.40576 W
+#Looe 24.54629 N 81.40463 W
+#Carysfort 25.209 N 80.2193 W
+# Molasses 25.009783 N 80.374266 W
+# French 25.0341333 N 80.3493 W
+# Pickles 24.9894667 N 80.41775 W
+#Elbow 25.143033 N 80.2582 W
+# Elbow 25.142633 N 80.258383 W
+
+(founders <- data.frame(longitude = c(-81.87559, -81.92742, -81.92718,-81.40576,-81.40463,-80.2193,-80.374266,-80.349,-80.41775,-80.2582,-80.258383), latitude = c(24.45308, 24.44538, 24.4451, 24.5460, 24.54629, 25.209, 25.009783, 25.0341333, 24.9894667, 25.143033, 25.14263)))
+founders
+
+# Test dimensions and colors
+ggplot(data = coastline10) + #adjust map selection here
+    geom_sf() +
+  geom_point(data = LKbi, aes(x = longitude, y = latitude), size = 3.5, 
+        shape = 21, fill = "skyblue") +
+    geom_point(data = EHSI, aes(x = longitude, y = latitude), size = 3, 
+        shape = 21, fill = "red") +
+    geom_point(data = EB, aes(x = longitude, y = latitude), size = 3, 
+        shape = 21, fill = "purple") +
+    geom_point(data = founders, aes(x = longitude, y = latitude), size = 1.5, 
+        shape = 23, fill = "goldenrod") +
+  geom_point(data = nursery, aes(x = longitude, y = latitude), size = 2, 
+        shape = 8, col = "darkred") +
+    coord_sf(xlim = c(-82.5, -79.5), ylim = c(24, 26.5), expand = FALSE)
+
+```
+
+## Try slightly better plot function and add in location of Miami for reference and scale bars
+
+```{r}
+
+#v2, try the sf functions
+
+(nursery <- st_as_sf(nursery, coords = c("longitude", "latitude"), 
+    crs = 4326, agr = "constant"))
+
+(founders <- st_as_sf(founders, coords = c("longitude", "latitude"), 
+    crs = 4326, agr = "constant"))
+
+(EHSI <- st_as_sf(EHSI, coords = c("longitude", "latitude"), 
+    crs = 4326, agr = "constant"))
+
+(EB <- st_as_sf(EB, coords = c("longitude", "latitude"), 
+    crs = 4326, agr = "constant"))
+
+(LKbi <- st_as_sf(LKbi, coords = c("longitude", "latitude"), 
+    crs = 4326, agr = "constant"))
+
+#Elbow: 25.1415 N 80.2623 W
+#Looe: 24.54609 N 81.40576 W
+#Horseshoe: 25.1399° N, 80.2946° W
+#Sand Island: 25.018267 -80.368417 25.500073°N 80.183415°W
+#Brewster: 25.566436° N, -80.099466° W
+
+Miami <- data.frame(state = rep("Florida", 1), city = c("Miami","Elbow","Looe Key","Horseshoe","Sand Is","Brewster"), lat = c(25.7616798,25.1415,24.54609,25.1399, 25.500073,25.566436), lng = c(-80.1917902,-80.2623,-81.40576,-80.2946,-80.183415, -80.099466))
+
+(Miami <- st_as_sf(Miami, coords = c("lng", "lat"), remove = FALSE, 
+    crs = 4326, agr = "constant"))
+
+# Final Plot
+ggplot(data = coastline10) +
+    geom_sf() +
+  geom_sf(data = Miami) +
+  geom_text_repel(data = Miami, aes(x = lng, y = lat, label = city), 
+        fontface = "bold", nudge_x = c(1, 0.5, 0.5, -0.75, 0.5, 0.25), nudge_y = c(0.25, 
+            0.1, 0, -0.1, -0.05,0.1)) +
+  geom_sf(data = LKbi,  size = 3.5, 
+        shape = 21, fill = "#CC79A7") +
+    geom_sf(data = EHSI,  size = 3, 
+        shape = 21, fill = "#D55E00") +
+    geom_sf(data = EB,  size = 3, 
+        shape = 21, fill = "#009E73") +
+    geom_sf(data = founders,  size = 1.5, 
+        shape = 23, fill = "#E69F00") +
+  geom_sf(data = nursery,  size = 2.5, 
+        shape = 8, col = "#000000") +
+  annotation_scale(location = "bl", width_hint = 0.4) +
+    annotation_north_arrow(location = "br", which_north = "true", 
+       # pad_x = unit(0.75, "in"), pad_y = unit(0.5, "in"),
+        style = north_arrow_fancy_orienteering) +
+    coord_sf(xlim = c(-82.5, -79.5), ylim = c(24, 26.5), expand = FALSE)+
+    xlab("Longitude") + ylab("Latitude") +
+  theme(panel.grid.major = element_line(color = gray(0.1), linetype = "dashed", 
+        size = 0.1)) #panel.background = element_rect(fill = "azure")
+
+```
+
+## Plot Location Inset
+
+
+```{r}
+
+# Bigger FL map
+ggplot(data = coastline10) +
+    geom_sf() +
+    coord_sf(xlim = c(-88, -78), ylim = c(24, 34), expand = FALSE)
+
+```
+
