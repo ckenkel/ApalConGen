@@ -1,0 +1,16 @@
+#!/bin/bash
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --time=02:00:00
+#SBATCH --error=%x_%j.err
+#SBATCH --output=%x_%j.out
+##SBATCH --mail-type=END
+##SBATCH --mail-user=mruggeri@usc.edu
+
+# enter your job environment parameters here
+module load legacy/CentOS7  gcc/11.3.0 bamtools/2.5.2
+
+# enter your job specific code below this line
+for NAME in `cat ./ID`; do bamtools stats -in $NAME'.host.bam' ; done > stats_host.txt
+for NAME in `cat ./ID`; do bamtools stats -in $NAME'.sym.bam' ; done > stats_sym.txt
+
