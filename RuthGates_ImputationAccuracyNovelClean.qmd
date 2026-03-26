@@ -1,0 +1,482 @@
+---
+title: "Ruth Gates Imputation Accuracy"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load all of the needed libraries.
+
+```{r}
+
+#install.packages("nationalparkcolors")
+
+# Graphical tools :
+library(ggplot2)
+library(cowplot)
+#library(nationalparkcolors)
+
+# Data Wrangling :
+library(dplyr)
+library(tidyr)
+library(forcats)
+library(car)
+library(naniar)
+
+```
+
+## Read in Imputed data, reformat and compare
+
+```{r}
+#read in table making separate columns for sample and genotype
+chrN_LoCoIMP<-read.table(text = gsub("=|,","\t",readLines("~/Dropbox/CarlsLab/ResearchProjects/NOAA_RuthGates/GenomeAnalysis/ImputationAccuracy/OZ034934.1_LoCoImputedSitesInfoAll.txt"))) 
+
+head(chrN_LoCoIMP)
+str(chrN_LoCoIMP)  
+
+chrN_LoCoIMP<-chrN_LoCoIMP %>%  #convert genotype notation to numeric dosage
+  mutate(across(everything(), ~replace(., . == '0|0', 0))) %>% 
+  mutate(across(everything(), ~replace(., . == '0|1', 1))) %>% 
+  mutate(across(everything(), ~replace(., . == '1|0', 1))) %>% 
+  mutate(across(everything(), ~replace(., . == '1|1', 2))) %>% 
+  mutate(across(everything(), ~replace(., . == './.', NA)))
+
+chrN_LoCoIMP<-chrN_LoCoIMP %>% #make genotype/GP columns numeric
+  mutate_at(c('V7', 'V9','V11', 'V13','V15', 'V17','V19', 'V21','V23', 'V25','V27', 'V29',"V31","V33", "V35", "V36", "V37", "V39" ,"V40", "V41", "V43", "V44", "V45", "V47", "V48", "V49", "V51", "V52","V53" ,"V55", "V56", "V57", "V59", "V60", "V61", "V63", "V64", "V65", "V67" ,"V68", "V69", "V71", "V72", "V73", "V75", "V76", "V77", "V79", "V80",  "V81", "V83", "V84","V85","V87","V88","V89"), as.numeric)
+
+summary(chrN_LoCoIMP)
+
+chrN_LoCoIMP_GT<-chrN_LoCoIMP %>% #pull out genotypes, Gprobs and IDs
+  select('V1','V2','V3','V4', 'V5','V7', 'V9','V11', 'V13','V15', 'V17','V19', 'V21','V23', 'V25','V27', 'V29',"V31","V33", "V35", "V36", "V37", "V39" ,"V40", "V41", "V43", "V44", "V45", "V47", "V48", "V49", "V51", "V52","V53" ,"V55", "V56", "V57", "V59", "V60", "V61", "V63", "V64", "V65", "V67" ,"V68", "V69", "V71", "V72", "V73", "V75", "V76", "V77", "V79", "V80",  "V81", "V83", "V84","V85","V87","V88","V89")
+
+#rename
+namesLo<-c(CHROM="V1", POS="V2",ID="V3",DR2="V4",AF="V5",GT_AP54="V7" ,GT_AP55="V9" ,GT_AP56="V11",GT_AP63="V13",GT_AP75="V15",GT_AP76="V17" ,GT_AP79="V19",GT_AP86= "V21" ,GT_AP89="V23",GT_AP91="V25" ,GT_AP30="V27",GT_AP14="V29",GT_AP8= "V31",GT_AP327= "V33",GPAA_AP54="V35",GPAB_AP54="V36", GPBB_AP54="V37", GPAA_AP55="V39", GPAB_AP55="V40" ,GPBB_AP55="V41",GPAA_AP56= "V43", GPAB_AP56="V44", GPBB_AP56="V45",GPAA_AP63= "V47",GPAB_AP63=  "V48",GPBB_AP63=  "V49", GPAA_AP75= "V51",GPAB_AP75= "V52",GPBB_AP75= "V53",GPAA_AP76="V55" ,GPAB_AP76="V56", GPBB_AP76="V57",GPAA_AP79= "V59", GPAB_AP79="V60",GPBB_AP79= "V61", GPAA_AP86="V63", GPAB_AP86="V64",GPBB_AP86= "V65", GPAA_AP89="V67", GPAB_AP89="V68" ,GPBB_AP89="V69", GPAA_AP91="V71", GPAB_AP91="V72", GPBB_AP91="V73", GPAA_AP30="V75", GPAB_AP30="V76", GPBB_AP30="V77", GPAA_AP14="V79",GPAB_AP14= "V80",GPBB_AP14= "V81", GPAA_AP8= "V83", GPAB_AP8="V84", GPBB_AP8="V85", GPAA_AP327= "V87", GPAB_AP327="V88", GPBB_AP327="V89")
+
+chrN_LoCoIMP_GT<-rename(chrN_LoCoIMP_GT, namesLo)
+
+head(chrN_LoCoIMP_GT)
+
+chrN_LoCoIMP_GTL<-chrN_LoCoIMP_GT %>% #reformat to tidy 
+  pivot_longer(
+    cols = starts_with("G"),
+    names_to = c("Info","Genet"),
+    names_sep = "_",
+    values_to = "LoCoIMP",
+    values_drop_na = TRUE
+  ) %>%
+  pivot_wider(names_from = "Info",values_from = "LoCoIMP")%>%
+  filter(Genet!="AP79")
+
+
+
+```
+
+## pull in high coverage truth dataset and determine how many loci were genotyped
+
+```{r}
+
+
+chrN_HiCoIMP<-read.table(text = gsub("=|,","\t",readLines("~/Dropbox/CarlsLab/ResearchProjects/NOAA_RuthGates/GenomeAnalysis/ImputationAccuracy/OZ034934.1_HiCoImputedSitesInfoAll.txt"))) 
+
+head(chrN_HiCoIMP)
+str(chrN_HiCoIMP) # fewer sites reliably genotyped, as expected 45844
+
+chrN_HiCoIMP<-chrN_HiCoIMP %>%  #convert genotype notation to numeric dosage
+  mutate(across(everything(), ~replace(., . == '0/0', 0))) %>% 
+  mutate(across(everything(), ~replace(., . == '0/1', 1))) %>% 
+  mutate(across(everything(), ~replace(., . == '1/0', 1))) %>% 
+  mutate(across(everything(), ~replace(., . == '1/1', 2))) %>% 
+  mutate(across(everything(), ~replace(., . == './.', NA)))
+
+chrN_HiCoIMP<-chrN_HiCoIMP %>% #make genotype columns numeric
+  mutate_at(c('V5', 'V7','V9', 'V11','V13', 'V15','V17', 'V19','V21', 'V23','V25', 'V27',"V29","V31", "V33","V35","V37" ,"V39" ,"V41" ,"V43" ,"V45" ,"V47","V49" ,"V51" , "V53" , "V55","V57","V59"), as.numeric)
+
+chrN_HiCoIMP_GT<-chrN_HiCoIMP %>% #pull out genotypes and IDs
+  select('V1','V2','V3', 'V5', 'V7','V9', 'V11','V13', 'V15','V17', 'V19','V21', 'V23','V25', 'V27',"V29","V31", "V33","V35","V37" ,"V39" ,"V41" ,"V43" ,"V45" ,"V47","V49" ,"V51" , "V53" , "V55","V57","V59")
+
+#rename
+namesHi<-c(CHROM="V1", POS="V2",ID="V3",AP54_GT="V5" ,AP55_GT="V7" ,AP56_GT="V9",AP63_GT="V11",AP75_GT="V13",AP76_GT="V15" ,AP79_GT="V17",AP86_GT= "V19" ,AP89_GT="V21",AP91_GT="V23" ,AP30_GT="V25",AP14_GT="V27",AP8_GT= "V29",AP327_GT= "V31",AP54_DP="V33" ,AP55_DP="V35" ,AP56_DP="V37",AP63_DP="V39",AP75_DP="V41",AP76_DP="V43" ,AP79_DP="V45",AP86_DP= "V47" ,AP89_DP="V49",AP91_DP="V51" ,AP30_DP="V53",AP14_DP="V55",AP8_DP= "V57",AP327_DP= "V59")
+
+chrN_HiCoIMP_GT<-rename(chrN_HiCoIMP_GT, namesHi)
+
+head(chrN_HiCoIMP_GT)
+
+
+chrN_HiCoIMP_GTL<-chrN_HiCoIMP_GT %>% #pivot all genotype to single col
+  pivot_longer(
+    cols = starts_with("AP"),
+    names_to = c("Genet","Info"),
+    names_sep = "_",
+    values_to = "HiCoIMP",
+    values_drop_na = TRUE
+  )%>%
+  pivot_wider(names_from = "Info",values_from = "HiCoIMP")%>%
+  filter(Genet!="AP79")
+
+
+head(chrN_HiCoIMP_GTL)
+
+```
+
+## NOW join the two datasets by chromosome and position
+
+```{r}
+
+
+chrNval<-inner_join(chrN_LoCoIMP_GTL, chrN_HiCoIMP_GTL, 
+           by = c("CHROM", "POS","Genet"))
+
+head(chrNval)
+summary(chrNval)
+
+chrNval %>%
+ mutate_at(vars(Genet), factor) %>% 
+  group_by(Genet) %>%
+  summarize(meanGPAA=mean(GPAA))
+
+chrNval %>% # how many loci available for comparisson total
+  distinct(ID.x)
+
+```
+
+## how many loci available for comparisson total
+
+#chr21: 45,318 #chr22: 34,301 #chr23: 32,924 #chr24: 28,551 #chr25: 31,082 #chr26: 30,344 #chr27: 35,781 #chr28: 24,072 #chr29: 30,874 #chr30: 25,551 #chr31: 24,640 #chr32: 29,102 #chr33: 27,994 #chr34: 25,843
+
+```{r}
+
+  
+chrNval %>% # how many loci with different SNP IDs...note its not many; a couple just naming convention #some are different alleles between ref and alternate...some are flips in indels between ref and alternate
+  filter(ID.x!=ID.y) %>% 
+  distinct(ID.x,ID.y) 
+
+chrNval %>%
+  filter(ID.x!=ID.y) %>% 
+  with(hist(AF)) #majority are low AF and would presumably be tossed anyway
+
+chrNval %>%
+  filter(ID.x!=ID.y) %>% 
+  with(hist(DR2)) #but DR2 values are generally high
+
+```
+
+## how many loci with different SNP IDs...
+
+## note its not many; a couple just naming convention
+
+#some are different alleles between ref and alternate...some are flips in indels between ref and alternate
+
+#chr21: 872 loci\
+#chr22: 667 loci #chr23: 697 loci #chr24: 669 loci #chr25: 618 loci #chr26: 653 loci #chr27: 641 loci #chr28: 510 loci #chr29: 680 loci #chr30: 586 loci #chr31: 497 loci #chr32: 686 loci #chr33: 724 loci #chr34: 589 loci
+
+### lets focus on apples to apples loci for truth vs imputation dataset comparison as a fcn of DR2 and generate plots of accuracy
+
+```{r}
+
+#first generate range of values across DR2s
+
+DR_00<-chrNval %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+#  filter(DR2 > 0.50) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoDR2=min(DR2),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+
+DR_01<-chrNval %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.10) %>% #set DR2 filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoDR2=min(DR2),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+DR_02<-chrNval %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.20) %>% #set DR2 filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoDR2=min(DR2),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+DR_03<-chrNval %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.30) %>% #set DR2 filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoDR2=min(DR2),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+DR_04<-chrNval %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.40) %>% #set DR2 filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoDR2=min(DR2),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+DR_05<-chrNval %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.50) %>% #set DR2 filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoDR2=min(DR2),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+  
+
+DR_06<-chrNval %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.60) %>% #set DR2 filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoDR2=min(DR2),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+DR_07<-chrNval %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.70) %>% #set DR2 filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoDR2=min(DR2),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+DR_08<-chrNval %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.80) %>% #set DR2 filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoDR2=min(DR2),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+DR_09<-chrNval %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.90) %>% #set DR2 filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoDR2=min(DR2),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+DR_095<-chrNval %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.95) %>% #set DR2 filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoDR2=min(DR2),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+DR_099<-chrNval %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.99) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoDR2=min(DR2),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+```
+
+## Combine and plot
+
+```{r}
+
+
+chrNAccByDR<-bind_rows(DR_00,DR_01,DR_02,DR_03,DR_04,DR_05,DR_06,DR_07,DR_08,DR_09,DR_095,DR_099)
+
+p1<-chrNAccByDR %>%
+ggplot(aes(x=LoCoDR2, y=r2)) +
+  geom_jitter()+
+  geom_smooth()+
+  theme_bw() + 
+  xlab("Low Coverage DR2") + 
+  ylab("Pearson's r2") +
+  ylim(0.50,1.0)+
+  geom_vline(xintercept=0.99,col="red")
+
+
+p2<-chrNAccByDR %>% #pivot all genotype to single col
+  pivot_longer(
+    cols = ends_with("Rate"),
+    names_to = c("Genotype"),
+    values_to = "Rate"
+  )%>%
+  ggplot(aes(x=LoCoDR2, y=Rate, color=Genotype)) +
+  geom_jitter()+
+  geom_smooth() +
+  theme_bw() + 
+  xlab("Low Coverage DR2") + 
+  ylab("Genotype Concordance") +
+  ylim(0.50,1.0)+
+  scale_color_manual(labels = c("Heterozygote", "Homozygous Alt","Homozygous Ref"), values = c("violet", "coral","lightblue"))+
+  geom_vline(xintercept=0.99,col="red")
+
+```
+
+## now final question is how many imputed loci would we retain in original shallow dataset over this range of DR2
+
+```{r}
+
+#again generate range of SNPs across DR2s
+
+LoDR_00<-chrN_LoCoIMP_GTL %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT))%>% #ignore rows where GT has not been called
+#  filter(DR2 > 0.50) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(LoCoDR2=min(DR2),HomRefSites=sum(GT==0),HetSites=sum(GT==1), HomAltSites=sum(GT==2),NsitesTotal=sum(HomRefSites,HetSites,HomAltSites))
+
+
+LoDR_01<-chrN_LoCoIMP_GTL %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.10) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(LoCoDR2=min(DR2),HomRefSites=sum(GT==0),HetSites=sum(GT==1), HomAltSites=sum(GT==2),NsitesTotal=sum(HomRefSites,HetSites,HomAltSites))
+
+
+LoDR_02<-chrN_LoCoIMP_GTL %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.20) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(LoCoDR2=min(DR2),HomRefSites=sum(GT==0),HetSites=sum(GT==1), HomAltSites=sum(GT==2),NsitesTotal=sum(HomRefSites,HetSites,HomAltSites))
+
+
+LoDR_03<-chrN_LoCoIMP_GTL %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.30) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(LoCoDR2=min(DR2),HomRefSites=sum(GT==0),HetSites=sum(GT==1), HomAltSites=sum(GT==2),NsitesTotal=sum(HomRefSites,HetSites,HomAltSites))
+
+
+LoDR_04<-chrN_LoCoIMP_GTL %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.40) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(LoCoDR2=min(DR2),HomRefSites=sum(GT==0),HetSites=sum(GT==1), HomAltSites=sum(GT==2),NsitesTotal=sum(HomRefSites,HetSites,HomAltSites))
+
+
+LoDR_05<-chrN_LoCoIMP_GTL %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.50) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(LoCoDR2=min(DR2),HomRefSites=sum(GT==0),HetSites=sum(GT==1), HomAltSites=sum(GT==2),NsitesTotal=sum(HomRefSites,HetSites,HomAltSites))
+  
+
+LoDR_06<-chrN_LoCoIMP_GTL %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.60) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(LoCoDR2=min(DR2),HomRefSites=sum(GT==0),HetSites=sum(GT==1), HomAltSites=sum(GT==2),NsitesTotal=sum(HomRefSites,HetSites,HomAltSites))
+
+
+LoDR_07<-chrN_LoCoIMP_GTL %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.70) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(LoCoDR2=min(DR2),HomRefSites=sum(GT==0),HetSites=sum(GT==1), HomAltSites=sum(GT==2),NsitesTotal=sum(HomRefSites,HetSites,HomAltSites))
+
+
+LoDR_08<-chrN_LoCoIMP_GTL %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.80) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(LoCoDR2=min(DR2),HomRefSites=sum(GT==0),HetSites=sum(GT==1), HomAltSites=sum(GT==2),NsitesTotal=sum(HomRefSites,HetSites,HomAltSites))
+
+
+LoDR_09<-chrN_LoCoIMP_GTL %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.90) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(LoCoDR2=min(DR2),HomRefSites=sum(GT==0),HetSites=sum(GT==1), HomAltSites=sum(GT==2),NsitesTotal=sum(HomRefSites,HetSites,HomAltSites))
+
+
+LoDR_095<-chrN_LoCoIMP_GTL %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.95) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(LoCoDR2=min(DR2),HomRefSites=sum(GT==0),HetSites=sum(GT==1), HomAltSites=sum(GT==2),NsitesTotal=sum(HomRefSites,HetSites,HomAltSites))
+
+
+LoDR_099<-chrN_LoCoIMP_GTL %>% #lets explore how much HiCo depth an GP affects concordance to determine "truth"
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT))%>% #ignore rows where GT has not been called
+  filter(DR2 >= 0.99) %>% #set DR2 filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(LoCoDR2=min(DR2),HomRefSites=sum(GT==0),HetSites=sum(GT==1), HomAltSites=sum(GT==2),NsitesTotal=sum(HomRefSites,HetSites,HomAltSites))
+
+```
+
+## combine and generate final plot and 3 plot panel and a few summary tables
+
+```{r}
+
+chrNSitesByDR<-bind_rows(LoDR_00,LoDR_01,LoDR_02,LoDR_03,LoDR_04,LoDR_05,LoDR_06,LoDR_07,LoDR_08,LoDR_09,LoDR_095,LoDR_099)
+
+p3<-chrNSitesByDR %>% ## FOR N SITES, NEED TO FIGURE OUT IN OG DATASET, no intersection, how many sites remain at these DR2 thresholds
+ggplot(aes(x=LoCoDR2, y=NsitesTotal)) +
+  geom_jitter()+
+  geom_smooth()+
+  theme_bw() + 
+  xlab("Low Coverage DR2") + 
+  ylab("N Genotyped Sites") +
+  ylim(5000,120000)+
+  geom_vline(xintercept=0.99,col="red")
+
+plots1 <- list(p3, p1, p2)
+
+plots1panel <- ggpubr::ggarrange(plotlist = plots1, nrow = 1, ncol = 3, labels = "AUTO",common.legend=TRUE,legend="bottom")
+
+ggpubr::annotate_figure(plots1panel, top = ggpubr::text_grob("CHROMOSOME 34", 
+               color = "black", face = "bold", size = 14))
+
+chrNAccByDR %>%
+  group_by(LoCoDR2) %>%
+  summarize(MeanConcordanceHomRef=mean(HomRefConcRate),MeanConcordanceHomAlt=mean(HomAltConcRate),MeanConcordanceHet=mean(HetConcRate),MeanR2=mean(r2))
+
+chrNSitesByDR %>%
+  distinct(NsitesTotal)
+
+```
+#Total sites:
+#DR2\>=0.99 #chr21: 13927 sites, 95-99% concordance, r2=0.93 #chr22: 9804 sites, 95-99% concordance, r2=0.94 #chr23: 10669 sites, 95-99% concordance, r2=0.93, #chr24: 9475 sites, 96-99% concordance, r2=0.949 #chr25: 9340 sites, 95-99% concordance, r2=0.914 - AP55 is big het outlier here #chr26: 10414 sites, 95-99% concordance, r2=0.92 #chr27: 10879 sites, 95-98 concordance, r2=0.92 #chr28: 7183 sites, #chr29: 9770 sites, #chr30: 7903 sites, #chr31: 6534 sites #chr32: 8152 sites #chr33: 8388 sites #chr34: 8627 sites
+
+#LoCoDR2 MeanConcordanceHomRef MeanConcordanceHomAlt MeanConcordanceHet MeanR2 #0.99 0.953 0.990 0.972 0.932 #0.99 0.955 0.990 0.974 0.943 #0.99 0.953 0.987 0.976 0.931 #0.99 0.965 0.988 0.972 0.949 #0.99 0.952 0.990 0.958 0.914 #0.99 0.953 0.988 0.974 0.920 #0.99 0.965 0.982 0.951 0.920 #0.99 0.961 0.988 0.947 0.936 #0.99 0.959 0.987 0.975 0.944 #0.99 0.958 0.991 0.977 0.939 #0.99 0.951 0.990 0.974 0.924 #0.99 0.946 0.989 0.970 0.909 #0.99 0.959 0.988 0.974 0.948 #0.99 0.957 0.982 0.971 0.937
+
+

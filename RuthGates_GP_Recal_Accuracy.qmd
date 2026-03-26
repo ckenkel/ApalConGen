@@ -1,0 +1,361 @@
+---
+title: "Ruth Gates GP Recalibration Accuracy"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load all of the needed libraries.
+
+```{r}
+
+#install.packages("nationalparkcolors")
+
+# Graphical tools :
+library(ggplot2)
+library(cowplot)
+#library(nationalparkcolors)
+
+# Data Wrangling :
+library(dplyr)
+library(tidyr)
+library(forcats)
+library(car)
+library(naniar)
+
+```
+
+## Read in GP recalibrated data, reformat and compare
+
+```{r}
+#read in table making separate columns for sample and genotype
+chrN_LoCoGPr<-read.table(text = gsub("=|,","\t",readLines("~/Dropbox/CarlsLab/ResearchProjects/NOAA_RuthGates/GenomeAnalysis/GP_RecalibrationAccuracy/OZ034934.1_LoCoGPrecalSitesInfoAll.txt"))) 
+
+head(chrN_LoCoGPr)
+str(chrN_LoCoGPr)  
+
+chrN_LoCoGPr<-chrN_LoCoGPr %>%  #convert genotype notation to numeric dosage
+  mutate(across(everything(), ~replace(., . == '0/0', 0))) %>% 
+  mutate(across(everything(), ~replace(., . == '0/1', 1))) %>% 
+  mutate(across(everything(), ~replace(., . == '1/0', 1))) %>% 
+  mutate(across(everything(), ~replace(., . == '1/1', 2))) %>% 
+  mutate(across(everything(), ~replace(., . == './.', NA)))
+
+chrN_LoCoGPr<-chrN_LoCoGPr %>% #make genotype/GP columns numeric
+  mutate_at(c('V6', 'V8','V10', 'V12','V14', 'V16','V18', 'V20','V22', 'V24','V26', 'V28',"V30","V32", "V34", "V35", "V36", "V38" ,"V39", "V40", "V42", "V43", "V44", "V46", "V47", "V48", "V50", "V51","V52" ,"V54", "V55", "V56", "V58", "V59", "V60", "V62", "V63", "V64", "V66" ,"V67", "V68", "V70", "V71", "V72", "V74", "V75", "V76", "V78", "V79",  "V80", "V82", "V83","V84","V86","V87","V88"), as.numeric)
+
+summary(chrN_LoCoGPr)
+
+chrN_LoCoGPr_GT<-chrN_LoCoGPr %>% #pull out genotypes, Gprobs and ID columns
+  select('V1','V2','V3','V4', 'V6', 'V8','V10', 'V12','V14', 'V16','V18', 'V20','V22', 'V24','V26', 'V28',"V30","V32", "V34", "V35", "V36", "V38" ,"V39", "V40", "V42", "V43", "V44", "V46", "V47", "V48", "V50", "V51","V52" ,"V54", "V55", "V56", "V58", "V59", "V60", "V62", "V63", "V64", "V66" ,"V67", "V68", "V70", "V71", "V72", "V74", "V75", "V76", "V78", "V79",  "V80", "V82", "V83","V84","V86","V87","V88")
+
+head(chrN_LoCoGPr_GT)
+
+#rename
+namesLo<-c(CHROM="V1", POS="V2",ID="V3",AF="V4",GT_AP54="V6" ,GT_AP55="V8" ,GT_AP56="V10",GT_AP63="V12",GT_AP75="V14",GT_AP76="V16" ,GT_AP79="V18",GT_AP86= "V20" ,GT_AP89="V22",GT_AP91="V24" ,GT_AP30="V26",GT_AP14="V28",GT_AP8= "V30",GT_AP327= "V32",GPAA_AP54="V34",GPAB_AP54="V35", GPBB_AP54="V36", GPAA_AP55="V38", GPAB_AP55="V39" ,GPBB_AP55="V40",GPAA_AP56= "V42", GPAB_AP56="V43", GPBB_AP56="V44",GPAA_AP63= "V46",GPAB_AP63=  "V47",GPBB_AP63=  "V48", GPAA_AP75= "V50",GPAB_AP75= "V51",GPBB_AP75= "V52",GPAA_AP76="V54" ,GPAB_AP76="V55", GPBB_AP76="V56",GPAA_AP79= "V58", GPAB_AP79="V59",GPBB_AP79= "V60", GPAA_AP86="V62", GPAB_AP86="V63",GPBB_AP86= "V64", GPAA_AP89="V66", GPAB_AP89="V67" ,GPBB_AP89="V68", GPAA_AP91="V70", GPAB_AP91="V71", GPBB_AP91="V72", GPAA_AP30="V74", GPAB_AP30="V75", GPBB_AP30="V76", GPAA_AP14="V78",GPAB_AP14= "V79",GPBB_AP14= "V80", GPAA_AP8= "V82", GPAB_AP8="V83", GPBB_AP8="V84", GPAA_AP327= "V86", GPAB_AP327="V87", GPBB_AP327="V88")
+
+chrN_LoCoGPr_GT<-rename(chrN_LoCoGPr_GT, namesLo)
+
+head(chrN_LoCoGPr_GT)
+
+chrN_LoCoGPr_GTL<-chrN_LoCoGPr_GT %>% #reformat to tidy 
+  pivot_longer(
+    cols = starts_with("G"),
+    names_to = c("Info","Genet"),
+    names_sep = "_",
+    values_to = "LoCoGPr",
+    values_drop_na = TRUE
+  ) %>%
+  pivot_wider(names_from = "Info",values_from = "LoCoGPr")%>%
+  filter(Genet!="AP79") # AP79 tossed from HiCo dataset
+
+head(chrN_LoCoGPr_GTL)
+
+```
+
+## pull in high coverage 'truth' dataset and determine how many loci were genotyped
+
+```{r}
+
+
+chrN_HiCoGPr<-read.table(text = gsub("=|,","\t",readLines("~/Dropbox/CarlsLab/ResearchProjects/NOAA_RuthGates/GenomeAnalysis/GP_RecalibrationAccuracy/OZ034934.1_HiCoGPrecalSitesInfoAll.txt"))) 
+
+head(chrN_HiCoGPr)
+str(chrN_HiCoGPr) 
+
+chrN_HiCoGPr<-chrN_HiCoGPr %>%  #convert genotype notation to numeric dosage
+  mutate(across(everything(), ~replace(., . == '0/0', 0))) %>% 
+  mutate(across(everything(), ~replace(., . == '0/1', 1))) %>% 
+  mutate(across(everything(), ~replace(., . == '1/0', 1))) %>% 
+  mutate(across(everything(), ~replace(., . == '1/1', 2))) %>% 
+  mutate(across(everything(), ~replace(., . == './.', NA)))
+
+chrN_HiCoGPr<-chrN_HiCoGPr %>% #make genotype columns numeric
+  mutate_at(c('V5', 'V7','V9', 'V11','V13', 'V15','V17', 'V19','V21', 'V23','V25', 'V27',"V29","V31", "V33","V35","V37" ,"V39" ,"V41" ,"V43" ,"V45" ,"V47","V49" ,"V51" , "V53" , "V55","V57","V59"), as.numeric)
+
+chrN_HiCoGPr_GT<-chrN_HiCoGPr %>% #pull out genotypes and read depth
+  select('V1','V2','V3', 'V5', 'V7','V9', 'V11','V13', 'V15','V17', 'V19','V21', 'V23','V25', 'V27',"V29","V31", "V33","V35","V37" ,"V39" ,"V41" ,"V43" ,"V45" ,"V47","V49" ,"V51" , "V53" , "V55","V57","V59")
+
+#rename
+namesHi<-c(CHROM="V1", POS="V2",ID="V3",AP54_GT="V5" ,AP55_GT="V7" ,AP56_GT="V9",AP63_GT="V11",AP75_GT="V13",AP76_GT="V15" ,AP79_GT="V17",AP86_GT= "V19" ,AP89_GT="V21",AP91_GT="V23" ,AP30_GT="V25",AP14_GT="V27",AP8_GT= "V29",AP327_GT= "V31",AP54_DP="V33" ,AP55_DP="V35" ,AP56_DP="V37",AP63_DP="V39",AP75_DP="V41",AP76_DP="V43" ,AP79_DP="V45",AP86_DP= "V47" ,AP89_DP="V49",AP91_DP="V51" ,AP30_DP="V53",AP14_DP="V55",AP8_DP= "V57",AP327_DP= "V59")
+
+chrN_HiCoGPr_GT<-rename(chrN_HiCoGPr_GT, namesHi)
+
+head(chrN_HiCoGPr_GT)
+
+
+chrN_HiCoGPr_GTL<-chrN_HiCoGPr_GT %>% #pivot all genotype to single col
+  pivot_longer(
+    cols = starts_with("AP"),
+    names_to = c("Genet","Info"),
+    names_sep = "_",
+    values_to = "HiCoGPr",
+    values_drop_na = TRUE
+  )%>%
+  pivot_wider(names_from = "Info",values_from = "HiCoGPr")%>%
+  filter(Genet!="AP79")
+
+
+head(chrN_HiCoGPr_GTL)
+
+```
+
+## NOW join the two datasets by chromosome and position
+
+```{r}
+
+
+chrNval<-inner_join(chrN_LoCoGPr_GTL, chrN_HiCoGPr_GTL, 
+           by = c("CHROM", "POS","Genet"))
+
+head(chrNval)
+summary(chrNval)
+
+chrNval %>%
+ mutate_at(vars(Genet), factor) %>% 
+  group_by(Genet) %>%
+  summarize(meanGPAA=mean(GPAA))
+
+chrNval %>% # how many loci available for comparisson total
+  distinct(ID.x) 
+
+```
+
+## how many loci available for comparisson total
+
+#chr21: 152,035 #chr22: 102,180 #chr23: 106,729 #chr24: 98,522 #chr25: 97,721 #chr26: 102,756 #chr27: 89,000 #chr28: 87,306 #chr29: 104,767 #chr30: 86,090 #chr31: 82,739 #chr32: 100,549 #chr33: 94,194 #chr34: 94,186
+
+```{r}
+
+  
+chrNval %>% # how many loci with different SNP IDs...note its not many; a couple just naming convention #some are different alleles between ref and alternate...some are flips in indels between ref and alternate
+  filter(ID.x!=ID.y) %>% 
+  distinct(ID.x,ID.y) 
+
+chrNval %>%
+  filter(ID.x!=ID.y) %>% 
+  with(hist(AF)) #majority are lower AF 
+
+
+```
+
+## how many loci with different SNP IDs...
+
+## note its not many; a couple just naming convention
+
+#some are different alleles between ref and alternate...some are flips in indels between ref and alternate
+
+#chr21: 80 loci\
+#chr22: 47 loci #chr23: 42 loci #chr24: 51 loci #chr25: 54 loci #chr26: 48 loci #chr27: 42 loci #chr28: 49 loci #chr29: 64 loci #chr30: 53 loci #chr31: 51 loci #chr32: 44 loci #chr33: 53 loci #chr34: 57 loci
+
+### lets focus on apples to apples loci for truth vs recal dataset comparison and generate plots of accuracy
+
+```{r}
+
+#first generate range of values across LoCo MAF bins
+
+AF_005<-chrNval %>% #lets explore how much AF affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter for hi co dataset
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(AF < 0.05) %>% #set AF filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoAF=mean(AF),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+
+AF_01<-chrNval %>% 
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(between(AF,0.05,0.15)) %>% #set AF filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoAF=mean(AF),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+AF_02<-chrNval %>% 
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(between(AF,0.15,0.25)) %>% #set AF filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoAF=mean(AF),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+AF_03<-chrNval %>% 
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(between(AF,0.25,0.35)) %>% #set AF filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoAF=mean(AF),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+AF_04<-chrNval %>% 
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(between(AF,0.35,0.45)) %>% #set AF filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoAF=mean(AF),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+AF_05<-chrNval %>% 
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(between(AF,0.45,0.55)) %>% #set AF filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoAF=mean(AF),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+AF_06<-chrNval %>% 
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(between(AF,0.55,0.65)) %>% #set AF filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoAF=mean(AF),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+AF_07<-chrNval %>% 
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(between(AF,0.65,0.75)) %>% #set AF filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoAF=mean(AF),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+AF_08<-chrNval %>% 
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(between(AF,0.75,0.85)) %>% #set AF filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoAF=mean(AF),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+AF_09<-chrNval %>% 
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(between(AF,0.85,0.95)) %>% #set AF filter for LoCo dataset
+   group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoAF=mean(AF),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+
+AF_095<-chrNval %>% #lets explore how much AF affects concordance to determine "truth"
+  filter(ID.x==ID.y) %>% #apples to apples
+  filter(DP>=10) %>% #depth filter for hi co dataset
+  mutate_at(vars(Genet), factor) %>% #make genet a factor for excluding outlier test
+  filter(!is.na(GT.x))%>% #ignore rows where GT has not been called
+  filter(!is.na(GT.y))%>% #ignore rows where GT has not been called
+  filter(AF > 0.95) %>% #set AF filter for LoCo dataset
+  group_by(Genet) %>%  
+  summarize(HiCoDP=min(DP),LoCoAF=mean(AF),HomRefSites=sum(GT.y==0),HomRefConc=sum(GT.y==GT.x & GT.y==0),HetSites=sum(GT.y==1), HetConc=sum(GT.y==GT.x &GT.y==1),HomAltSites=sum(GT.y==2),HomAltConc=sum(GT.y==GT.x & GT.y==2),r2=cor(GT.x,GT.y,method="pearson",use="complete.obs"),HomRefConcRate=HomRefConc/HomRefSites,HetConcRate=HetConc/HetSites,HomAltConcRate=HomAltConc/HomAltSites,NsitesConcTotal=sum(HomRefConc,HetConc,HomAltConc))
+```
+
+## Combine and plot
+
+```{r}
+
+
+chrNAccByMAF<-bind_rows(AF_005,AF_01,AF_02,AF_03,AF_04,AF_05,AF_06,AF_07,AF_08,AF_09,AF_095)
+
+p1<-chrNAccByMAF %>%
+ggplot(aes(x=LoCoAF, y=r2)) +
+  geom_jitter()+
+  geom_smooth()+
+  theme_bw() + 
+  xlab("Low Coverage MAF") + 
+  ylab("Pearson's r2") +
+  ylim(0,1.0)
+
+
+p2<-chrNAccByMAF %>% #pivot all genotype to single col
+  pivot_longer(
+    cols = ends_with("Rate"),
+    names_to = c("Genotype"),
+    values_to = "Rate"
+  )%>%
+  ggplot(aes(x=LoCoAF, y=Rate, color=Genotype)) +
+  geom_jitter()+
+  geom_smooth() +
+  theme_bw() + 
+  xlab("Low Coverage MAF") + 
+  ylab("Genotype Concordance") +
+  ylim(0,1.0)+
+  scale_color_manual(labels = c("Heterozygote", "Homozygous Alt","Homozygous Ref"), values = c("violet", "coral","lightblue"))
+
+p3<-chrNAccByMAF %>% #pivot all genotype to single col
+  pivot_longer(
+    cols = ends_with("Sites"),
+    names_to = c("Genotype"),
+    values_to = "Nsites"
+  )%>%
+  ggplot(aes(x=LoCoAF, y=Nsites, color=Genotype)) +
+  geom_jitter()+
+  geom_smooth() +
+  theme_bw() + 
+  xlab("Low Coverage MAF") + 
+  ylab("N Sites Genotyped") +
+#  ylim(0,1.0)+
+  scale_color_manual(labels = c("Heterozygote", "Homozygous Alt","Homozygous Ref"), values = c("violet", "coral","lightblue"))
+
+```
+
+
+## combine and generate final plot and 3 plot panel and a few summary tables
+
+```{r}
+
+plots1 <- list(p1, p2, p3)
+
+plots1panel <- ggpubr::ggarrange(plotlist = plots1, nrow = 1, ncol = 3, labels = "AUTO",common.legend=TRUE,legend="bottom")
+
+ggpubr::annotate_figure(plots1panel, top = ggpubr::text_grob("CHROMOSOME 34 - post GP recalibration", 
+               color = "black", face = "bold", size = 14))
+
+chrNAccByMAF %>% summarize(globalPearson=mean(r2,na.rm=TRUE))
+
+#per chromosome Pearson R2 and 'global' mean
+mean(c(0.878,0.878,0.871,0.883,0.834,0.854,0.862,0.878,0.876,0.859,0.849,0.850,0.865,0.879))
+
+```
+
