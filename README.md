@@ -84,7 +84,12 @@ Files in this repository
 	
 2. RuthGates_SiteMap.qmd: Annotated R script for generating site map as in Figure 1
    
-3. RuthGates_RelatednessConGen.qmd: Annotated R script for visualization and analyses of relatedness and genomic diversity
+3. Annotated R scripts for assessing imputation accuracy and genotype concordance. Note that even per chromosome input files are large must be generated following steps in ApalGenomes_ConGen.txt
+	- RuthGates_GP_Raw_Accuracy.qmd: Accuracy/genotype concordance of raw genotype calls
+	- RuthGates_GP_Recal_Accuracy.qmd: Imputation accuracy/genotype concordance of recalibrated calls following first step of imputation pipeline
+	- RuthGates_ImputationAccuracyNovelClean.qmd: Imputation accuracy/genotype concordance of newly imputed sites
+
+4. RuthGates_RelatednessConGen.qmd: Annotated R script for visualization and analyses of relatedness and genomic diversity
 	- Input file: pixy_EBonly_pi.txt
 	- Input file: AllCHR_GL_allLoci_realign_IGP099_IMP_DR2099_dummyID_binary_fileset_KINGrelate.kin0
 	- Input file: AllCHR_ExptIMPfilt_HapParent_Merge_Filt_dummyID_binary_fileset_KINGrelate.kin0
